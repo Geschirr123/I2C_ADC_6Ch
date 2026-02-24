@@ -141,6 +141,19 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
+  * @brief This function handles DMA1 channel 1 interrupt.
+  */
+void DMA1_Channel1_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel1_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel1_IRQn 0 */
+  /* USER CODE BEGIN DMA1_Channel1_IRQn 1 */
+
+  /* USER CODE END DMA1_Channel1_IRQn 1 */
+}
+
+/**
   * @brief This function handles DMA1 channel 2 and channel 3 interrupts.
   */
 void DMA1_Channel2_3_IRQHandler(void)
@@ -151,6 +164,19 @@ void DMA1_Channel2_3_IRQHandler(void)
   /* USER CODE BEGIN DMA1_Channel2_3_IRQn 1 */
 
   /* USER CODE END DMA1_Channel2_3_IRQn 1 */
+}
+
+/**
+  * @brief This function handles ADC, COMP1 and COMP2 interrupts (COMP interrupts through EXTI lines 21 and 22).
+  */
+void ADC1_COMP_IRQHandler(void)
+{
+  /* USER CODE BEGIN ADC1_COMP_IRQn 0 */
+
+  /* USER CODE END ADC1_COMP_IRQn 0 */
+  /* USER CODE BEGIN ADC1_COMP_IRQn 1 */
+
+  /* USER CODE END ADC1_COMP_IRQn 1 */
 }
 
 /**
@@ -167,11 +193,22 @@ void I2C1_IRQHandler(void)
         I2C_received = true;
     }
     if (LL_I2C_IsActiveFlag_TXE(I2C1)) {
-        LL_I2C_TransmitData8(I2C1, I2C_TX_buffer[I2C_TX_buffer_idx]);
-        I2C_TX_buffer_idx = (I2C_TX_buffer_idx + 1) % 4;
+        if (!ADC_sendChannelNumber) {
+            if (I2C_sendMSB) {
+                LL_I2C_TransmitData8(I2C1, 0x00);//(I2C_TX_buffer>>8) & 0xFF);
+                I2C_sendMSB = false;
+            } else {
+                LL_I2C_TransmitData8(I2C1, 0x05);//(uint8_t)(I2C_TX_buffer & 0x00FF));
+                I2C_sendMSB = true;
+                ADC_sendChannelNumber = true;
+                //ADC_channelNumber = (ADC_channelNumber + 1) % ADC_CHANNELS;
+            }
+        } else {
+            ADC_sendChannelNumber = false;
+            LL_I2C_TransmitData8(I2C1, 0x01);//ADC_channelNumber);
+        }
     }
     if (LL_I2C_IsActiveFlag_STOP(I2C1)) {
-        LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
         LL_I2C_ClearFlag_STOP(I2C1);
     }
   /* USER CODE END I2C1_IRQn 0 */

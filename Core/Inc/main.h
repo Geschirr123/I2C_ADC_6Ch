@@ -27,6 +27,7 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
+#include "stm32l0xx_ll_adc.h"
 #include "stm32l0xx_ll_dma.h"
 #include "stm32l0xx_ll_i2c.h"
 #include "stm32l0xx_ll_crs.h"
@@ -50,10 +51,15 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+#define ADC_CHANNELS 1
+
 extern volatile bool I2C_received;
 extern volatile uint8_t I2C_RX_buffer[1];
-extern volatile uint8_t I2C_TX_buffer[4];
-extern volatile uint8_t I2C_TX_buffer_idx;
+extern volatile uint16_t I2C_TX_buffer;
+extern volatile uint8_t ADC_channelNumber;
+extern volatile uint16_t ADC_buffer[ADC_CHANNELS];
+extern volatile bool ADC_sendChannelNumber;
+extern volatile bool I2C_sendMSB;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -89,7 +95,6 @@ void Error_Handler(void);
 #endif
 
 /* USER CODE BEGIN Private defines */
-
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
