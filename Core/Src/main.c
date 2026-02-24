@@ -44,11 +44,16 @@
 /* USER CODE BEGIN PV */
 volatile bool I2C_received = false;
 volatile uint8_t I2C_RX_buffer[1] = {0};
+volatile uint8_t I2C_TX_buffer[4] = {0x01, 0x01, 0x02, 0x02}; // [channel No, data, channel No, data]
+volatile uint8_t I2C_TX_buffer_idx = 0;
+
+bool stream_data = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 
@@ -92,6 +97,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
@@ -106,20 +112,28 @@ int main(void)
     LL_I2C_Enable(I2C1);
     LL_I2C_EnableIT_ADDR(I2C1);
     LL_I2C_EnableIT_RX(I2C1);
+    LL_I2C_EnableIT_TX(I2C1);
+    LL_I2C_EnableIT_STOP(I2C1);
     LL_I2C_AcknowledgeNextData(I2C1, LL_I2C_ACK);
     LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
 
   while (1)
   {
+      if (I2C_received == true) {
+          I2C_received = false;
+          if (I2C_RX_buffer[0] == 0x03) {
+              LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
+              LL_I2C_TransmitData8(I2C1, I2C_TX_buffer[0]);
+              I2C_TX_buffer_idx = 1;
+              stream_data = true;
+          } else if (I2C_RX_buffer[0] == 0x04) {
+
+              stream_data = false;
+          }
+      }
+
     /* USER CODE END WHILE */
-    if (I2C_received) {
-        I2C_received = false;
-        if (I2C_RX_buffer[0] == 1) {
-            LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
-        } else if (I2C_RX_buffer[0] == 2) {
-            LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
-        }
-    }
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -205,6 +219,25 @@ static void MX_I2C1_Init(void)
   /* Peripheral clock enable */
   LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_I2C1);
 
+  /* I2C1 DMA Init */
+
+  /* I2C1_TX Init */
+  LL_DMA_SetPeriphRequest(DMA1, LL_DMA_CHANNEL_2, LL_DMA_REQUEST_6);
+
+  LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_2, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+
+  LL_DMA_SetChannelPriorityLevel(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PRIORITY_LOW);
+
+  LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MODE_CIRCULAR);
+
+  LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PERIPH_NOINCREMENT);
+
+  LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MEMORY_INCREMENT);
+
+  LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PDATAALIGN_BYTE);
+
+  LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MDATAALIGN_BYTE);
+
   /* I2C1 interrupt Init */
   NVIC_SetPriority(I2C1_IRQn, 0);
   NVIC_EnableIRQ(I2C1_IRQn);
@@ -230,6 +263,23 @@ static void MX_I2C1_Init(void)
   LL_I2C_SetOwnAddress2(I2C1, 0, LL_I2C_OWNADDRESS2_NOMASK);
   /* USER CODE BEGIN I2C1_Init 2 */
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* Init with LL driver */
+  /* DMA controller clock enable */
+  LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_DMA1);
+
+  /* DMA interrupt init */
+  /* DMA1_Channel2_3_IRQn interrupt configuration */
+  NVIC_SetPriority(DMA1_Channel2_3_IRQn, 0);
+  NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
 
 }
 

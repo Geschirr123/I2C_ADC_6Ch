@@ -24,10 +24,10 @@
 
 #ifdef __cplusplus
 extern "C" {
-
 #endif
 
 /* Includes ------------------------------------------------------------------*/
+#include "stm32l0xx_ll_dma.h"
 #include "stm32l0xx_ll_i2c.h"
 #include "stm32l0xx_ll_crs.h"
 #include "stm32l0xx_ll_rcc.h"
@@ -37,7 +37,6 @@ extern "C" {
 #include "stm32l0xx_ll_cortex.h"
 #include "stm32l0xx_ll_utils.h"
 #include "stm32l0xx_ll_pwr.h"
-#include "stm32l0xx_ll_dma.h"
 #include "stm32l0xx_ll_gpio.h"
 
 #if defined(USE_FULL_ASSERT)
@@ -53,6 +52,8 @@ extern "C" {
 /* USER CODE BEGIN ET */
 extern volatile bool I2C_received;
 extern volatile uint8_t I2C_RX_buffer[1];
+extern volatile uint8_t I2C_TX_buffer[4];
+extern volatile uint8_t I2C_TX_buffer_idx;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

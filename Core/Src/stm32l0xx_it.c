@@ -141,6 +141,19 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
+  * @brief This function handles DMA1 channel 2 and channel 3 interrupts.
+  */
+void DMA1_Channel2_3_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel2_3_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel2_3_IRQn 0 */
+  /* USER CODE BEGIN DMA1_Channel2_3_IRQn 1 */
+
+  /* USER CODE END DMA1_Channel2_3_IRQn 1 */
+}
+
+/**
   * @brief This function handles I2C1 event global interrupt / I2C1 wake-up interrupt through EXTI line 23.
   */
 void I2C1_IRQHandler(void)
@@ -152,6 +165,14 @@ void I2C1_IRQHandler(void)
     if (LL_I2C_IsActiveFlag_RXNE(I2C1)) {
         I2C_RX_buffer[0] = LL_I2C_ReceiveData8(I2C1);
         I2C_received = true;
+    }
+    if (LL_I2C_IsActiveFlag_TXE(I2C1)) {
+        LL_I2C_TransmitData8(I2C1, I2C_TX_buffer[I2C_TX_buffer_idx]);
+        I2C_TX_buffer_idx = (I2C_TX_buffer_idx + 1) % 4;
+    }
+    if (LL_I2C_IsActiveFlag_STOP(I2C1)) {
+        LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
+        LL_I2C_ClearFlag_STOP(I2C1);
     }
   /* USER CODE END I2C1_IRQn 0 */
   /* USER CODE BEGIN I2C1_IRQn 1 */
