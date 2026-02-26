@@ -43,15 +43,14 @@
 
 /* USER CODE BEGIN PV */
 volatile bool I2C_received = false;
-volatile uint8_t I2C_RX_buffer[1] = {0};
-volatile uint16_t I2C_TX_buffer = 0;
+volatile uint8_t I2C_RX_buffer[1];
+volatile uint8_t I2C_TX_buffer[3] = {0, 0, 0};
+volatile uint8_t I2C_TX_bufferIdx = 0;
 
-volatile uint8_t ADC_channelNumber = 0;
-volatile uint16_t ADC_buffer[1] = {0};
-volatile bool ADC_sendChannelNumber = true;
-volatile bool I2C_sendMSB = true;
+volatile uint8_t ADC_currentChannel = 0;
+volatile uint16_t ADC_buffer[ADC_CHANNELS];
 
-bool stream_data = false;
+volatile bool stream_data = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -126,7 +125,7 @@ int main(void)
     LL_I2C_Enable(I2C1);
     LL_I2C_EnableIT_ADDR(I2C1);
     LL_I2C_EnableIT_RX(I2C1);
-    LL_I2C_EnableIT_TX(I2C1);
+    LL_I2C_DisableIT_TX(I2C1); // only enable when streaming
     LL_I2C_EnableIT_STOP(I2C1);
     LL_I2C_AcknowledgeNextData(I2C1, LL_I2C_ACK);
 
@@ -141,7 +140,6 @@ int main(void)
     LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1,1);
     LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_1);
 
-    // for testing, should usually probably be started by I2C command
     LL_ADC_REG_StartConversion(ADC1);
 
     LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
@@ -149,24 +147,38 @@ int main(void)
 
   while (1)
   {
+      if (ADC_currentChannel >= ADC_CHANNELS) ADC_currentChannel = 0;
+
+      if (I2C_TX_bufferIdx >= 3) {
+          I2C_TX_bufferIdx = 0;
+          I2C_TX_buffer[0] = ADC_currentChannel;
+          I2C_TX_buffer[1] = (ADC_buffer[ADC_currentChannel] >> 8) & 0xFF;
+          I2C_TX_buffer[2] = (ADC_buffer[ADC_currentChannel] & 0xFF);
+          ADC_currentChannel++;
+      }
+
+      LL_GPIO_TogglePin(DEBUG_GPIO_Port, DEBUG_Pin);
+
       if (I2C_received == true) {
           I2C_received = false;
           if (I2C_RX_buffer[0] == 0x03) {
-              LL_I2C_TransmitData8(I2C1, ADC_channelNumber);
-              I2C_TX_buffer = ADC_buffer[0];
-              ADC_sendChannelNumber = false;
-              I2C_sendMSB = true;
-              stream_data = true;
+              LL_I2C_EnableIT_TX(I2C1);
+              I2C_TX_bufferIdx = 0;
+              I2C_TX_buffer[0] = ADC_currentChannel;
+              I2C_TX_buffer[1] = (ADC_buffer[ADC_currentChannel] >> 8) & 0xFF;
+              I2C_TX_buffer[2] = (ADC_buffer[ADC_currentChannel] & 0xFF);
+              ADC_currentChannel++;
           } else if (I2C_RX_buffer[0] == 0x04) {
-              stream_data = false;
+              LL_I2C_DisableIT_TX(I2C1);
           }
       }
 
+      /* This proved ADC channel 1 working already
       if (ADC_buffer[0] > 2000) {
           LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
       } else {
           LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
-      }
+      }*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -180,37 +192,44 @@ int main(void)
   */
 void SystemClock_Config(void)
 {
-  LL_FLASH_SetLatency(LL_FLASH_LATENCY_0);
-  while(LL_FLASH_GetLatency()!= LL_FLASH_LATENCY_0)
+  LL_FLASH_SetLatency(LL_FLASH_LATENCY_1);
+  while(LL_FLASH_GetLatency()!= LL_FLASH_LATENCY_1)
   {
   }
   LL_PWR_SetRegulVoltageScaling(LL_PWR_REGU_VOLTAGE_SCALE1);
   while (LL_PWR_IsActiveFlag_VOS() != 0)
   {
   }
-  LL_RCC_MSI_Enable();
+  LL_RCC_HSI_Enable();
 
-   /* Wait till MSI is ready */
-  while(LL_RCC_MSI_IsReady() != 1)
+   /* Wait till HSI is ready */
+  while(LL_RCC_HSI_IsReady() != 1)
   {
 
   }
-  LL_RCC_MSI_SetRange(LL_RCC_MSIRANGE_5);
-  LL_RCC_MSI_SetCalibTrimming(0);
+  LL_RCC_HSI_SetCalibTrimming(16);
+  LL_RCC_PLL_ConfigDomain_SYS(LL_RCC_PLLSOURCE_HSI, LL_RCC_PLL_MUL_4, LL_RCC_PLL_DIV_2);
+  LL_RCC_PLL_Enable();
+
+   /* Wait till PLL is ready */
+  while(LL_RCC_PLL_IsReady() != 1)
+  {
+
+  }
   LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
   LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_1);
   LL_RCC_SetAPB2Prescaler(LL_RCC_APB2_DIV_1);
-  LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_MSI);
+  LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_PLL);
 
    /* Wait till System clock is ready */
-  while(LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_MSI)
+  while(LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_PLL)
   {
 
   }
 
-  LL_Init1msTick(2097000);
+  LL_Init1msTick(32000000);
 
-  LL_SetSystemCoreClock(2097000);
+  LL_SetSystemCoreClock(32000000);
   LL_RCC_SetI2CClockSource(LL_RCC_I2C1_CLKSOURCE_PCLK1);
 }
 
@@ -262,10 +281,6 @@ static void MX_ADC_Init(void)
 
   LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_WORD);
 
-  /* ADC interrupt Init */
-  NVIC_SetPriority(ADC1_COMP_IRQn, 0);
-  NVIC_EnableIRQ(ADC1_COMP_IRQn);
-
   /* USER CODE BEGIN ADC_Init 1 */
 
   /* USER CODE END ADC_Init 1 */
@@ -285,10 +300,10 @@ static void MX_ADC_Init(void)
   LL_ADC_SetSamplingTimeCommonChannels(ADC1, LL_ADC_SAMPLINGTIME_1CYCLE_5);
   LL_ADC_SetOverSamplingScope(ADC1, LL_ADC_OVS_DISABLE);
   LL_ADC_REG_SetSequencerScanDirection(ADC1, LL_ADC_REG_SEQ_SCAN_DIR_FORWARD);
-  LL_ADC_SetCommonFrequencyMode(__LL_ADC_COMMON_INSTANCE(ADC1), LL_ADC_CLOCK_FREQ_MODE_LOW);
+  LL_ADC_SetCommonFrequencyMode(__LL_ADC_COMMON_INSTANCE(ADC1), LL_ADC_CLOCK_FREQ_MODE_HIGH);
   LL_ADC_DisableIT_EOC(ADC1);
   LL_ADC_DisableIT_EOS(ADC1);
-  ADC_InitStruct.Clock = LL_ADC_CLOCK_SYNC_PCLK_DIV1;
+  ADC_InitStruct.Clock = LL_ADC_CLOCK_SYNC_PCLK_DIV2;
   ADC_InitStruct.Resolution = LL_ADC_RESOLUTION_12B;
   ADC_InitStruct.DataAlignment = LL_ADC_DATA_ALIGN_RIGHT;
   ADC_InitStruct.LowPowerMode = LL_ADC_LP_MODE_NONE;
@@ -388,7 +403,7 @@ static void MX_I2C1_Init(void)
   LL_I2C_DisableGeneralCall(I2C1);
   LL_I2C_EnableClockStretching(I2C1);
   I2C_InitStruct.PeripheralMode = LL_I2C_MODE_I2C;
-  I2C_InitStruct.Timing = 0x00000608;
+  I2C_InitStruct.Timing = 0x00B07CB4;
   I2C_InitStruct.AnalogFilter = LL_I2C_ANALOGFILTER_ENABLE;
   I2C_InitStruct.DigitalFilter = 0;
   I2C_InitStruct.OwnAddress1 = 4;
@@ -441,12 +456,23 @@ static void MX_GPIO_Init(void)
   LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
 
   /**/
+  LL_GPIO_ResetOutputPin(DEBUG_GPIO_Port, DEBUG_Pin);
+
+  /**/
   GPIO_InitStruct.Pin = LED_Pin;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
   GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
   GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   LL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
+
+  /**/
+  GPIO_InitStruct.Pin = DEBUG_Pin;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  LL_GPIO_Init(DEBUG_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 

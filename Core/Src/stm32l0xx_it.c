@@ -167,19 +167,6 @@ void DMA1_Channel2_3_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles ADC, COMP1 and COMP2 interrupts (COMP interrupts through EXTI lines 21 and 22).
-  */
-void ADC1_COMP_IRQHandler(void)
-{
-  /* USER CODE BEGIN ADC1_COMP_IRQn 0 */
-
-  /* USER CODE END ADC1_COMP_IRQn 0 */
-  /* USER CODE BEGIN ADC1_COMP_IRQn 1 */
-
-  /* USER CODE END ADC1_COMP_IRQn 1 */
-}
-
-/**
   * @brief This function handles I2C1 event global interrupt / I2C1 wake-up interrupt through EXTI line 23.
   */
 void I2C1_IRQHandler(void)
@@ -187,27 +174,17 @@ void I2C1_IRQHandler(void)
   /* USER CODE BEGIN I2C1_IRQn 0 */
     if (LL_I2C_IsActiveFlag_ADDR(I2C1)) {
         LL_I2C_ClearFlag_ADDR(I2C1);
+        I2C_TX_bufferIdx = 0;
     }
     if (LL_I2C_IsActiveFlag_RXNE(I2C1)) {
         I2C_RX_buffer[0] = LL_I2C_ReceiveData8(I2C1);
         I2C_received = true;
     }
     if (LL_I2C_IsActiveFlag_TXE(I2C1)) {
-        if (!ADC_sendChannelNumber) {
-            if (I2C_sendMSB) {
-                LL_I2C_TransmitData8(I2C1, 0x00);//(I2C_TX_buffer>>8) & 0xFF);
-                I2C_sendMSB = false;
-            } else {
-                LL_I2C_TransmitData8(I2C1, 0x05);//(uint8_t)(I2C_TX_buffer & 0x00FF));
-                I2C_sendMSB = true;
-                ADC_sendChannelNumber = true;
-                //ADC_channelNumber = (ADC_channelNumber + 1) % ADC_CHANNELS;
-            }
-        } else {
-            ADC_sendChannelNumber = false;
-            LL_I2C_TransmitData8(I2C1, 0x01);//ADC_channelNumber);
-        }
+        LL_I2C_TransmitData8(I2C1, I2C_TX_buffer[I2C_TX_bufferIdx]);
+        I2C_TX_bufferIdx++;
     }
+
     if (LL_I2C_IsActiveFlag_STOP(I2C1)) {
         LL_I2C_ClearFlag_STOP(I2C1);
     }

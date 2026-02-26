@@ -55,11 +55,12 @@ extern "C" {
 
 extern volatile bool I2C_received;
 extern volatile uint8_t I2C_RX_buffer[1];
-extern volatile uint16_t I2C_TX_buffer;
-extern volatile uint8_t ADC_channelNumber;
+extern volatile uint8_t I2C_TX_buffer[3];
+extern volatile uint8_t I2C_TX_bufferIdx;
 extern volatile uint16_t ADC_buffer[ADC_CHANNELS];
-extern volatile bool ADC_sendChannelNumber;
-extern volatile bool I2C_sendMSB;
+extern volatile uint8_t ADC_currentChannel;
+extern volatile bool stream_data;
+
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -81,6 +82,8 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define LED_Pin LL_GPIO_PIN_8
 #define LED_GPIO_Port GPIOA
+#define DEBUG_Pin LL_GPIO_PIN_0
+#define DEBUG_GPIO_Port GPIOB
 #ifndef NVIC_PRIORITYGROUP_0
 #define NVIC_PRIORITYGROUP_0         ((uint32_t)0x00000007) /*!< 0 bit  for pre-emption priority,
                                                                  4 bits for subpriority */
