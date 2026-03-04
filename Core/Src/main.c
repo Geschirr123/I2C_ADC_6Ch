@@ -22,16 +22,29 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stdbool.h"
+#include "stddef.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
+// NVM config defining the offsets of specific fields
+typedef struct {
+    uint32_t I2C_address;
+    uint32_t ADC_activeChannels;
+} NVM_Config;
+
+typedef enum {
+    NVM_I2C_ADDRESS = offsetof(NVM_Config, I2C_address),
+    ADC_ACTIVE_CHANNELS = offsetof(NVM_Config, ADC_activeChannels)
+}NVM_Key;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define FLASH_PEKEY1 0x89ABCDEF // magic flash key 1
+#define FLASH_PEKEY2 0x02030405 // magic flash key 2
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -42,6 +55,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+NVM_Config *NVM_config;
+
 volatile bool I2C_received = false;
 volatile uint8_t I2C_RX_buffer[1];
 volatile uint8_t I2C_TX_buffer[3] = {0, 0, 0};
@@ -49,6 +64,7 @@ volatile uint8_t I2C_TX_bufferIdx = 0;
 
 volatile uint8_t ADC_currentChannel = 0;
 volatile uint16_t ADC_buffer[ADC_CHANNELS];
+uint8_t ADC_channelCount = 1;
 
 volatile bool stream_data = false;
 /* USER CODE END PV */
@@ -60,6 +76,9 @@ static void MX_DMA_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_ADC_Init(void);
 /* USER CODE BEGIN PFP */
+
+void EEPROM_write(NVM_Key offset, uint32_t data);
+uint32_t EEPROM_read(NVM_Key offset);
 
 /* USER CODE END PFP */
 
@@ -76,9 +95,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
   /* USER CODE END 1 */
-
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
@@ -90,12 +107,16 @@ int main(void)
 
   /* USER CODE BEGIN Init */
 
-  /* USER CODE END Init */
+    /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
+
+    // NVM setup
+    NVM_config = (NVM_Config *)DATA_EEPROM_BASE;
+    // TODO read NVM (for I2C address)
 
   /* USER CODE END SysInit */
 
@@ -137,7 +158,7 @@ int main(void)
     LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1,
         LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA),
         (uint32_t)&ADC_buffer[0], LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1,1);
+    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1,ADC_CHANNELS);
     LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_1);
 
     LL_ADC_REG_StartConversion(ADC1);
@@ -150,23 +171,23 @@ int main(void)
       if (ADC_currentChannel >= ADC_CHANNELS) ADC_currentChannel = 0;
 
       if (I2C_TX_bufferIdx >= 3) {
+          const uint16_t ADC_val = ADC_buffer[ADC_currentChannel];
           I2C_TX_bufferIdx = 0;
           I2C_TX_buffer[0] = ADC_currentChannel;
-          I2C_TX_buffer[1] = (ADC_buffer[ADC_currentChannel] >> 8) & 0xFF;
-          I2C_TX_buffer[2] = (ADC_buffer[ADC_currentChannel] & 0xFF);
+          I2C_TX_buffer[1] = (ADC_val >> 8) & 0xFF;
+          I2C_TX_buffer[2] = (ADC_val & 0xFF);
           ADC_currentChannel++;
       }
-
-      LL_GPIO_TogglePin(DEBUG_GPIO_Port, DEBUG_Pin);
-
+      
       if (I2C_received == true) {
           I2C_received = false;
           if (I2C_RX_buffer[0] == 0x03) {
+              const uint16_t ADC_val = ADC_buffer[ADC_currentChannel];
               LL_I2C_EnableIT_TX(I2C1);
               I2C_TX_bufferIdx = 0;
               I2C_TX_buffer[0] = ADC_currentChannel;
-              I2C_TX_buffer[1] = (ADC_buffer[ADC_currentChannel] >> 8) & 0xFF;
-              I2C_TX_buffer[2] = (ADC_buffer[ADC_currentChannel] & 0xFF);
+              I2C_TX_buffer[1] = (ADC_val >> 8) & 0xFF;
+              I2C_TX_buffer[2] = (ADC_val & 0xFF);
               ADC_currentChannel++;
           } else if (I2C_RX_buffer[0] == 0x04) {
               LL_I2C_DisableIT_TX(I2C1);
@@ -256,8 +277,14 @@ static void MX_ADC_Init(void)
   LL_IOP_GRP1_EnableClock(LL_IOP_GRP1_PERIPH_GPIOA);
   /**ADC GPIO Configuration
   PA1   ------> ADC_IN1
+  PA0-CK_IN   ------> ADC_IN0
   */
   GPIO_InitStruct.Pin = LL_GPIO_PIN_1;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_0;
   GPIO_InitStruct.Mode = LL_GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
   LL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -277,13 +304,17 @@ static void MX_ADC_Init(void)
 
   LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MEMORY_INCREMENT);
 
-  LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PDATAALIGN_WORD);
+  LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_PDATAALIGN_HALFWORD);
 
-  LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_WORD);
+  LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_1, LL_DMA_MDATAALIGN_HALFWORD);
 
   /* USER CODE BEGIN ADC_Init 1 */
 
   /* USER CODE END ADC_Init 1 */
+
+  /** Configure Regular Channel
+  */
+  LL_ADC_REG_SetSequencerChAdd(ADC1, LL_ADC_CHANNEL_0);
 
   /** Configure Regular Channel
   */
@@ -480,6 +511,34 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void EEPROM_write(const NVM_Key offset, const uint32_t data) {
+    const uint32_t absolute_address = DATA_EEPROM_BASE + offset;
+
+    // return if data didn't change
+    if (*(__IO uint32_t *)absolute_address == data) return;
+
+    // Unlock
+    while (FLASH->SR & FLASH_SR_BSY) {}
+    if (FLASH->PECR & FLASH_PECR_PELOCK) {
+        FLASH->PEKEYR = FLASH_PEKEY1;
+        FLASH->PEKEYR = FLASH_PEKEY2;
+    }
+
+    if (FLASH->PECR & FLASH_PECR_PELOCK) return; // Unlock failed
+
+    // write
+    FLASH->SR |= (FLASH_SR_WRPERR | FLASH_SR_PGAERR); // clear potential old error flags
+    *(__IO uint32_t *)absolute_address = data;
+    while (FLASH->SR & FLASH_SR_BSY) {}
+
+    // Lock
+    FLASH->PECR |= FLASH_PECR_PELOCK;
+}
+
+uint32_t EEPROM_read(const NVM_Key offset) {
+    const uint32_t absolute_address = DATA_EEPROM_BASE + offset;
+    return *(__IO uint32_t*) absolute_address;
+}
 /* USER CODE END 4 */
 
 /**

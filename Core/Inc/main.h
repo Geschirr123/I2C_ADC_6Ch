@@ -51,7 +51,7 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-#define ADC_CHANNELS 1
+#define ADC_CHANNELS 2
 
 extern volatile bool I2C_received;
 extern volatile uint8_t I2C_RX_buffer[1];
