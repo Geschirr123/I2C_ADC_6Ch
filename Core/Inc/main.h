@@ -21,6 +21,7 @@
 /* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef __MAIN_H
 #define __MAIN_H
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,12 +52,57 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+#define I2C_RX_BUFFER_SIZE 2
 #define ADC_CHANNELS 2
 
+typedef struct {
+    uint8_t ADC_CH0_MSB, ADC_CH0_LSB;
+    uint8_t ADC_CH1_MSB, ADC_CH1_LSB;
+    uint8_t ADC_CH2_MSB, ADC_CH2_LSB;
+    uint8_t ADC_CH3_MSB, ADC_CH3_LSB;
+    uint8_t ADC_CH4_MSB, ADC_CH4_LSB;
+    uint8_t ADC_CH5_MSB, ADC_CH5_LSB;
+    uint8_t ADC_channelConfig;
+    uint8_t I2C_address;
+}RegisterMap;
+
+typedef enum {
+    REG_ADC_CH0_MSB = offsetof(RegisterMap, ADC_CH0_MSB),
+    REG_ADC_CH0_LSB = offsetof(RegisterMap, ADC_CH0_LSB),
+    REG_ADC_CH1_MSB = offsetof(RegisterMap, ADC_CH1_MSB),
+    REG_ADC_CH1_LSB = offsetof(RegisterMap, ADC_CH1_LSB),
+    REG_ADC_CH2_MSB = offsetof(RegisterMap, ADC_CH2_MSB),
+    REG_ADC_CH2_LSB = offsetof(RegisterMap, ADC_CH2_LSB),
+    REG_ADC_CH3_MSB = offsetof(RegisterMap, ADC_CH3_MSB),
+    REG_ADC_CH3_LSB = offsetof(RegisterMap, ADC_CH3_LSB),
+    REG_ADC_CH4_MSB = offsetof(RegisterMap, ADC_CH4_MSB),
+    REG_ADC_CH4_LSB = offsetof(RegisterMap, ADC_CH4_LSB),
+    REG_ADC_CH5_MSB = offsetof(RegisterMap, ADC_CH5_MSB),
+    REG_ADC_CH5_LSB = offsetof(RegisterMap, ADC_CH5_LSB),
+    REG_ADC_channelConfig = offsetof(RegisterMap, ADC_channelConfig),
+    REG_address = offsetof(RegisterMap, I2C_address)
+}Registers;
+
+typedef enum {
+    I2C_STATE_DEFAULT, // next read will yield one round of ADC data (ADC channel count * 2 bytes)
+    I2C_STATE_CHANNEL_CONFIG, // next r/w will give or expect channel config
+    I2C_STATE_SEND_ADC_DATA, // started sending ADC data but isn't done yet
+}I2C_State;
+
+typedef enum {
+    I2C_REG_CHANNEL_CONFIG = 0x0A
+}I2C_Commands;
+
+extern volatile RegisterMap registerMap;
+extern volatile RegisterMap * const pRegisterMap;
+extern volatile uint8_t * pCurrentRegister;
+extern volatile uint8_t * pADC_maxChannel;
+
+extern volatile bool I2C_addressMatched;
 extern volatile bool I2C_received;
-extern volatile uint8_t I2C_RX_buffer[1];
-extern volatile uint8_t I2C_TX_buffer[3];
-extern volatile uint8_t I2C_TX_bufferIdx;
+extern volatile I2C_State I2C_state;
+extern volatile uint8_t I2C_RX_buffer[I2C_RX_BUFFER_SIZE];
+extern volatile uint8_t I2C_RX_bufferIdx;
 extern volatile uint16_t ADC_buffer[ADC_CHANNELS];
 extern volatile uint8_t ADC_currentChannel;
 extern volatile bool stream_data;

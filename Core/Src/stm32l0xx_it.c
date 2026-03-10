@@ -174,15 +174,32 @@ void I2C1_IRQHandler(void)
   /* USER CODE BEGIN I2C1_IRQn 0 */
     if (LL_I2C_IsActiveFlag_ADDR(I2C1)) {
         LL_I2C_ClearFlag_ADDR(I2C1);
-        I2C_TX_bufferIdx = 0;
+
+        if (LL_I2C_GetTransferDirection(I2C1) == LL_I2C_DIRECTION_READ) {
+            pCurrentRegister = &(pRegisterMap->ADC_CH0_LSB);
+            I2C_state = I2C_STATE_SEND_ADC_DATA;
+        }
+        // TODO read data logic
     }
+
     if (LL_I2C_IsActiveFlag_RXNE(I2C1)) {
-        I2C_RX_buffer[0] = LL_I2C_ReceiveData8(I2C1);
+        I2C_RX_buffer[I2C_RX_bufferIdx] = LL_I2C_ReceiveData8(I2C1);
+
+        I2C_RX_bufferIdx++;
         I2C_received = true;
+        if (I2C_RX_bufferIdx >= I2C_RX_BUFFER_SIZE) I2C_RX_bufferIdx = 0;
     }
+
     if (LL_I2C_IsActiveFlag_TXE(I2C1)) {
-        LL_I2C_TransmitData8(I2C1, I2C_TX_buffer[I2C_TX_bufferIdx]);
-        I2C_TX_bufferIdx++;
+        if (I2C_state == I2C_STATE_SEND_ADC_DATA) {
+            if (pCurrentRegister > pADC_maxChannel) {
+                I2C_state = I2C_STATE_DEFAULT;
+                LL_I2C_TransmitData8(I2C1, 0x00); // dummy to clear flag
+            } else {
+                LL_I2C_TransmitData8(I2C1, *pCurrentRegister);
+                pCurrentRegister++;
+            }
+        }
     }
 
     if (LL_I2C_IsActiveFlag_STOP(I2C1)) {
