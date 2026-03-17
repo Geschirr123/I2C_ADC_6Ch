@@ -39,6 +39,15 @@ typedef enum {
     NVM_ADC_CHANNEL_CONFIG = offsetof(NVM_Config, ADC_channelConfig)
 }NVM_Key;
 
+const uint32_t ADC_channelMap[] = {
+    LL_ADC_CHANNEL_0, // Bit 0 of mask
+    LL_ADC_CHANNEL_1, // Bit 1
+    LL_ADC_CHANNEL_2, // Bit 2
+    LL_ADC_CHANNEL_3, // Bit 3
+    LL_ADC_CHANNEL_5, // Bit 4
+    LL_ADC_CHANNEL_8  // Bit 5
+};
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -62,19 +71,15 @@ volatile uint8_t * pRegisters;
 volatile uint8_t * pCurrentRegister;
 
 volatile I2C_State I2C_state;
-volatile bool I2C_addressMatched = false;
-volatile bool I2C_received = false;
 volatile uint8_t I2C_RX_buffer[I2C_RX_BUFFER_SIZE];
 volatile uint8_t I2C_RX_bufferIdx = 0;
 volatile uint8_t I2C_TX_bufferIdx = 0;
 
 volatile uint8_t ADC_currentChannel = 0;
-volatile uint16_t ADC_buffer[ADC_CHANNELS];
-uint8_t ADC_channelCount = 1;
+volatile uint8_t ADC_channelCount = 0;
+volatile uint16_t ADC_buffer[ADC_CHANNELS] = {0, 0, 0, 0, 0, 0};
 volatile uint8_t * pADC_maxChannel;
-uint8_t eepromMirror_ADC_config;
-
-volatile bool stream_data = false;
+volatile bool updateChannelConfig = false;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -85,7 +90,7 @@ static void MX_I2C1_Init(void);
 static void MX_ADC_Init(void);
 /* USER CODE BEGIN PFP */
 
-void ADC_updateChannelSetup(uint8_t channelConfig);
+void ADC_updateChannelSetup(void);
 
 bool EEPROM_write(NVM_Key offset, uint32_t data);
 uint32_t EEPROM_read(NVM_Key offset);
@@ -131,22 +136,24 @@ int main(void)
     // NVM setup
     NVM_config = (NVM_Config *)DATA_EEPROM_BASE;
     // TODO read NVM (for I2C address)
-    eepromMirror_ADC_config = EEPROM_read(NVM_ADC_CHANNEL_CONFIG);
+    pRegisterMap->ADC_channelConfig = EEPROM_read(NVM_ADC_CHANNEL_CONFIG);
 
     // DEBUG TODO remove
+    ADC_buffer[0] = 0xFFFF;
+    ADC_buffer[1] = 0xFFFF;
     pADC_maxChannel = &(pRegisterMap->ADC_CH5_LSB);
-    pRegisterMap->ADC_CH0_LSB = 0x09;
     pRegisterMap->ADC_CH0_MSB = 0x00;
-    pRegisterMap->ADC_CH1_LSB = 0x01;
+    pRegisterMap->ADC_CH0_LSB = 0x00;
     pRegisterMap->ADC_CH1_MSB = 0x00;
+    pRegisterMap->ADC_CH1_LSB = 0x00;
+    pRegisterMap->ADC_CH2_MSB = 0x01;
     pRegisterMap->ADC_CH2_LSB = 0x02;
-    pRegisterMap->ADC_CH2_MSB = 0x00;
-    pRegisterMap->ADC_CH3_LSB = 0x03;
-    pRegisterMap->ADC_CH3_MSB = 0x00;
-    pRegisterMap->ADC_CH4_LSB = 0x04;
-    pRegisterMap->ADC_CH4_MSB = 0x00;
-    pRegisterMap->ADC_CH5_LSB = 0x05;
-    pRegisterMap->ADC_CH5_MSB = 0x00;
+    pRegisterMap->ADC_CH3_MSB = 0x03;
+    pRegisterMap->ADC_CH3_LSB = 0x04;
+    pRegisterMap->ADC_CH4_MSB = 0x05;
+    pRegisterMap->ADC_CH4_LSB = 0x06;
+    pRegisterMap->ADC_CH5_MSB = 0x07;
+    pRegisterMap->ADC_CH5_LSB = 0x08;
 
   /* USER CODE END SysInit */
 
@@ -163,14 +170,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
 
     // Setup
-
-    //start adc calibration in the background
-    if (LL_ADC_IsEnabled(ADC1)) {
-        LL_ADC_Disable(ADC1);
-        while (LL_ADC_IsEnabled(ADC1));
-    }
-    LL_ADC_StartCalibration(ADC1);
-
     // Enable I2C
     LL_GPIO_SetOutputPin(LED_GPIO_Port, LED_Pin);
     LL_I2C_Enable(I2C1);
@@ -180,30 +179,34 @@ int main(void)
     LL_I2C_EnableIT_STOP(I2C1);
     LL_I2C_AcknowledgeNextData(I2C1, LL_I2C_ACK);
 
-    while (LL_ADC_IsCalibrationOnGoing(ADC1)) {}
-    LL_ADC_Enable(ADC1);
-    while (!LL_ADC_IsActiveFlag_ADRDY(ADC1)) {}
-
-    // set up ADC + DMA
     LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_1,
         LL_ADC_DMA_GetRegAddr(ADC1, LL_ADC_DMA_REG_REGULAR_DATA),
         (uint32_t)&ADC_buffer[0], LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1,ADC_CHANNELS);
-    LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_1);
+    LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_1);
 
-    LL_ADC_REG_StartConversion(ADC1);
+    if (LL_ADC_IsEnabled(ADC1)) {
+        LL_ADC_Disable(ADC1);
+        while (LL_ADC_IsEnabled(ADC1));
+    }
+    LL_ADC_StartCalibration(ADC1);
+    while (LL_ADC_IsCalibrationOnGoing(ADC1)) {}
+    LL_ADC_Enable(ADC1);
+    ADC_updateChannelSetup();
 
     LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
     // End of setup
 
   while (1)
   {
-      //if (I2C_addressMatched) {
-      //    I2C_TX_bufferIdx = 0;
-      //    I2C_RX_bufferIdx = 0;
-      //    I2C_addressMatched = false;
-      //    // TODO send data
-      //}
+      LL_GPIO_SetOutputPin(DEBUG_GPIO_Port, DEBUG_Pin);
+      if (updateChannelConfig) {
+          //LL_GPIO_ResetOutputPin(DEBUG_GPIO_Port, DEBUG_Pin);
+          updateChannelConfig = false;
+          if (EEPROM_write(NVM_ADC_CHANNEL_CONFIG, pRegisterMap->ADC_channelConfig)) {
+              //LL_GPIO_ResetOutputPin(LED_GPIO_Port, LED_Pin);
+              ADC_updateChannelSetup();
+          }
+      }
 
     /* USER CODE END WHILE */
 
@@ -363,7 +366,7 @@ static void MX_ADC_Init(void)
   ADC_REG_InitStruct.DMATransfer = LL_ADC_REG_DMA_TRANSFER_UNLIMITED;
   ADC_REG_InitStruct.Overrun = LL_ADC_REG_OVR_DATA_OVERWRITTEN;
   LL_ADC_REG_Init(ADC1, &ADC_REG_InitStruct);
-  LL_ADC_SetSamplingTimeCommonChannels(ADC1, LL_ADC_SAMPLINGTIME_1CYCLE_5);
+  LL_ADC_SetSamplingTimeCommonChannels(ADC1, LL_ADC_SAMPLINGTIME_39CYCLES_5);
   LL_ADC_SetOverSamplingScope(ADC1, LL_ADC_OVS_DISABLE);
   LL_ADC_REG_SetSequencerScanDirection(ADC1, LL_ADC_REG_SEQ_SCAN_DIR_FORWARD);
   LL_ADC_SetCommonFrequencyMode(__LL_ADC_COMMON_INSTANCE(ADC1), LL_ADC_CLOCK_FREQ_MODE_HIGH);
@@ -435,25 +438,6 @@ static void MX_I2C1_Init(void)
   /* Peripheral clock enable */
   LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_I2C1);
 
-  /* I2C1 DMA Init */
-
-  /* I2C1_TX Init */
-  LL_DMA_SetPeriphRequest(DMA1, LL_DMA_CHANNEL_2, LL_DMA_REQUEST_6);
-
-  LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_2, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-
-  LL_DMA_SetChannelPriorityLevel(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PRIORITY_LOW);
-
-  LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MODE_CIRCULAR);
-
-  LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PERIPH_NOINCREMENT);
-
-  LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MEMORY_INCREMENT);
-
-  LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PDATAALIGN_BYTE);
-
-  LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MDATAALIGN_BYTE);
-
   /* I2C1 interrupt Init */
   NVIC_SetPriority(I2C1_IRQn, 0);
   NVIC_EnableIRQ(I2C1_IRQn);
@@ -496,9 +480,6 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel1_IRQn interrupt configuration */
   NVIC_SetPriority(DMA1_Channel1_IRQn, 0);
   NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-  /* DMA1_Channel2_3_IRQn interrupt configuration */
-  NVIC_SetPriority(DMA1_Channel2_3_IRQn, 0);
-  NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
 
 }
 
@@ -547,10 +528,42 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-void ADC_updateChannelSetup(const uint8_t channelConfig) {
-    // TODO Implement this
-    // either use LL functions LL_ADC_REG_SetSequencerChAdd
-    // or the ADC_CHSELR register
+/* Reconfigures the ADC in accordance to the registerMaps ADC_channelConfig.
+ * Doesn't read or write to the EEPROM.
+ * Channels 0...5 are remapped to the physical channels 0...3, 5, 8.
+ * A channelConfig like 100001 will activate channels 0 and 5 which will use the "real" ADC channels 0 and 8.
+ */
+void ADC_updateChannelSetup(void) {
+    // TODO Test this
+    //LL_DMA_DisableIT_TC(DMA1, LL_DMA_CHANNEL_1);
+
+    uint8_t config_mask = pRegisterMap->ADC_channelConfig;
+    ADC_channelCount = 0;
+    pADC_maxChannel = &(pRegisterMap->ADC_CH0_MSB);
+
+    if (LL_ADC_IsEnabled(ADC1)) {
+        LL_ADC_REG_StopConversion(ADC1);
+        while (ADC1->CR & ADC_CR_ADSTP); // wait till stopped
+    }
+
+    ADC1->CHSELR = 0;
+    for (int i = 0; i < 6; i++) {
+        if ((config_mask >> i) & 1) {
+            LL_ADC_REG_SetSequencerChAdd(ADC1, ADC_channelMap[i]);
+            ADC_channelCount++;
+            pADC_maxChannel += 2;
+        }
+    }
+
+    if (ADC_channelCount > 0) {
+        LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_1);
+        LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1, ADC_channelCount);
+        LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_1);
+
+        LL_ADC_REG_StartConversion(ADC1);
+    }
+
+    //LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_1);
 }
 
 /* Write to EEPROM if data is different then what's in the EEPROM already.
@@ -559,7 +572,6 @@ void ADC_updateChannelSetup(const uint8_t channelConfig) {
 bool EEPROM_write(const NVM_Key offset, const uint32_t data) {
     const uint32_t absolute_address = DATA_EEPROM_BASE + offset;
 
-    // return if data didn't change
     if (*(__IO uint32_t *)absolute_address == data) return false;
 
     // Unlock
@@ -568,6 +580,7 @@ bool EEPROM_write(const NVM_Key offset, const uint32_t data) {
         FLASH->PEKEYR = FLASH_PEKEY1;
         FLASH->PEKEYR = FLASH_PEKEY2;
     }
+
 
     if (FLASH->PECR & FLASH_PECR_PELOCK) return false; // Unlock failed
 
