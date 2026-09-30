@@ -66,8 +66,9 @@ typedef struct {
 }RegisterMap;
 
 typedef enum {
-    I2C_STATE_DEFAULT, // next read will yield one round of ADC data (ADC channel count * 2 bytes)
-    I2C_STATE_SEND_ADC_DATA, // started sending ADC data but isn't done yet
+    I2C_STATE_DEFAULT, // nothing to send, reads return 0xFF
+    I2C_STATE_SEND_ADC_DATA, // sending the ADC snapshot, 0xFF padding after the last channel
+    I2C_STATE_SEND_REGISTER, // sending I2C_txRegValue, 0xFF padding afterwards
 }I2C_State;
 
 typedef enum {
@@ -80,10 +81,10 @@ extern volatile uint8_t * pCurrentRegister;
 extern volatile uint8_t * pADC_maxChannel;
 
 extern volatile I2C_State I2C_state;
+extern volatile uint8_t I2C_txRegValue;
 extern volatile uint8_t I2C_RX_buffer[I2C_RX_BUFFER_SIZE];
 extern volatile uint8_t I2C_RX_bufferIdx;
 extern volatile uint16_t ADC_buffer[ADC_CHANNELS];
-extern volatile uint8_t ADC_currentChannel;
 extern volatile uint8_t ADC_channelCount;
 extern volatile bool updateChannelConfig;
 
@@ -108,8 +109,6 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define LED_Pin LL_GPIO_PIN_8
 #define LED_GPIO_Port GPIOA
-#define DEBUG_Pin LL_GPIO_PIN_0
-#define DEBUG_GPIO_Port GPIOB
 #ifndef NVIC_PRIORITYGROUP_0
 #define NVIC_PRIORITYGROUP_0         ((uint32_t)0x00000007) /*!< 0 bit  for pre-emption priority,
                                                                  4 bits for subpriority */
