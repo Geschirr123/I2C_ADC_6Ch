@@ -21,4 +21,10 @@ Values are 12-bit right-aligned (0..4095). Reading more bytes than available ret
 
 ## Under the hood
 
-ADC scans the enabled channels continuously, DMA1_CH1 writes samples to RAM in circular mode, the I2C address-match interrupt copies them into MSB/LSB registers, and the I2C interrupt serves them. Mask changes are written to on-chip data EEPROM and the ADC/DMA are reconfigured. LL drivers only, 32 MHz from HSI+PLL.
+TIM2 triggers one ADC scan of the enabled channels at 7 kHz (2x the fastest possible master read at 100 kHz).
+DMA1_CH1 writes samples to RAM in circular mode.
+The I2C address-match interrupt copies them into MSB/LSB registers, and the I2C interrupt serves them.
+Mask changes are written to on-chip data EEPROM and the ADC/DMA are reconfigured.
+LL drivers only for limited Flash.
+8 MHz from HSI16 (AHB/2).
+The core sleeps (`WFI`) between interrupts.

@@ -54,6 +54,9 @@ const uint32_t ADC_channelMap[] = {
 /* USER CODE BEGIN PD */
 #define FLASH_PEKEY1 0x89ABCDEF // magic flash key 1
 #define FLASH_PEKEY2 0x02030405 // magic flash key 2
+// Fastest master read is ~3.4k/s (1 channel, 100 kHz), so scan at 2x that.
+// A 6-channel scan takes ~78 us at 8 MHz, the period must stay above that.
+#define ADC_SCAN_RATE_HZ 7000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -145,6 +148,15 @@ int main(void)
   MX_ADC_Init();
   /* USER CODE BEGIN 2 */
 
+  // ADC: one scan per TIM2 update instead of continuous
+  LL_ADC_REG_SetContinuousMode(ADC1, LL_ADC_REG_CONV_SINGLE);
+  LL_ADC_REG_SetTriggerSource(ADC1, LL_ADC_REG_TRIG_EXT_TIM2_TRGO);
+
+  LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM2);
+  TIM2->PSC = 0;
+  TIM2->ARR = (SystemCoreClock / ADC_SCAN_RATE_HZ) - 1;
+  TIM2->CR2 = (TIM2->CR2 & ~TIM_CR2_MMS) | TIM_CR2_MMS_1; // TRGO on update
+  TIM2->CR1 |= TIM_CR1_CEN;
 
   /* USER CODE END 2 */
 
@@ -182,6 +194,13 @@ int main(void)
 
   while (1)
   {
+      // Sleep until an interrupt, unless there is work already
+      __disable_irq();
+      if (!updateChannelConfig) {
+          __WFI();
+      }
+      __enable_irq();
+
       if (updateChannelConfig) {
           updateChannelConfig = false;
           const uint8_t mask = pRegisterMap->ADC_channelConfig;
@@ -204,11 +223,11 @@ int main(void)
   */
 void SystemClock_Config(void)
 {
-  LL_FLASH_SetLatency(LL_FLASH_LATENCY_1);
-  while(LL_FLASH_GetLatency()!= LL_FLASH_LATENCY_1)
+  LL_FLASH_SetLatency(LL_FLASH_LATENCY_0);
+  while(LL_FLASH_GetLatency()!= LL_FLASH_LATENCY_0)
   {
   }
-  LL_PWR_SetRegulVoltageScaling(LL_PWR_REGU_VOLTAGE_SCALE1);
+  LL_PWR_SetRegulVoltageScaling(LL_PWR_REGU_VOLTAGE_SCALE2);
   while (LL_PWR_IsActiveFlag_VOS() != 0)
   {
   }
@@ -220,28 +239,20 @@ void SystemClock_Config(void)
 
   }
   LL_RCC_HSI_SetCalibTrimming(16);
-  LL_RCC_PLL_ConfigDomain_SYS(LL_RCC_PLLSOURCE_HSI, LL_RCC_PLL_MUL_4, LL_RCC_PLL_DIV_2);
-  LL_RCC_PLL_Enable();
-
-   /* Wait till PLL is ready */
-  while(LL_RCC_PLL_IsReady() != 1)
-  {
-
-  }
-  LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_1);
+  LL_RCC_SetAHBPrescaler(LL_RCC_SYSCLK_DIV_2);
   LL_RCC_SetAPB1Prescaler(LL_RCC_APB1_DIV_1);
   LL_RCC_SetAPB2Prescaler(LL_RCC_APB2_DIV_1);
-  LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_PLL);
+  LL_RCC_SetSysClkSource(LL_RCC_SYS_CLKSOURCE_HSI);
 
    /* Wait till System clock is ready */
-  while(LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_PLL)
+  while(LL_RCC_GetSysClkSource() != LL_RCC_SYS_CLKSOURCE_STATUS_HSI)
   {
 
   }
 
-  LL_Init1msTick(32000000);
+  LL_Init1msTick(8000000);
 
-  LL_SetSystemCoreClock(32000000);
+  LL_SetSystemCoreClock(8000000);
   LL_RCC_SetI2CClockSource(LL_RCC_I2C1_CLKSOURCE_PCLK1);
 }
 
@@ -447,7 +458,7 @@ static void MX_I2C1_Init(void)
   LL_I2C_DisableGeneralCall(I2C1);
   LL_I2C_EnableClockStretching(I2C1);
   I2C_InitStruct.PeripheralMode = LL_I2C_MODE_I2C;
-  I2C_InitStruct.Timing = 0x00B07CB4;
+  I2C_InitStruct.Timing = 0x10420F13;
   I2C_InitStruct.AnalogFilter = LL_I2C_ANALOGFILTER_ENABLE;
   I2C_InitStruct.DigitalFilter = 0;
   I2C_InitStruct.OwnAddress1 = 8;
